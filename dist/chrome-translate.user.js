@@ -396,6 +396,7 @@
   const BILINGUAL_CONTAINER = `${PREFIX}-bilingual-container`;
   const BILINGUAL_PARAGRAPH = `${PREFIX}-bilingual-paragraph`;
   const TRANSLATE_ATTR = `data-${PREFIX}-translate`;
+  const ORIGINAL_ATTR = `data-${PREFIX}-original`;
   const SCROLLBAR_INFO = getScrollbarInfo();
   const DOM_SELECTORS = {
     EXCLUDE_DEFAULT: [
@@ -521,6 +522,7 @@
     language;
     el;
     useHTML = false;
+    mode = "bilingual";
     isRunning = false;
     observer;
     mutationObserver;
@@ -573,6 +575,9 @@
       }
       this.language = { from, to };
     }
+    setMode(mode) {
+      this.mode = mode;
+    }
     clear() {
       this.clearCache();
       this.clearElements();
@@ -592,6 +597,11 @@
         el.remove();
       });
       this.translateContainers.forEach((el) => {
+        const original = el.getAttribute(ORIGINAL_ATTR);
+        if (original) {
+          el.innerHTML = original;
+          el.removeAttribute(ORIGINAL_ATTR);
+        }
         el.classList.remove(BILINGUAL_CONTAINER);
         el.removeAttribute(TRANSLATE_ATTR);
       });
@@ -636,12 +646,20 @@
                 const translateOptions = { from: this.language.from, to: this.language.to, map: textParagraph.combinedTextMap, text: textParagraph.combinedText };
                 textParagraph.translate = await this.translateHTML(translateOptions);
                 cancelLoding();
-                this.isRunning && this.createParagraphBilingualDisplayHTML(textParagraph);
+                if (this.mode === "bilingual") {
+                  this.isRunning && this.createParagraphBilingualDisplayHTML(textParagraph);
+                } else {
+                  this.isRunning && this.createParagraphReplaceDisplay(textParagraph);
+                }
               } else {
                 const translateOptions = { textNodes: textParagraph.textNodes, from: this.language.from, to: this.language.to };
                 textParagraph.textNodes = await this.translate(translateOptions);
                 cancelLoding();
-                this.isRunning && this.createParagraphBilingualDisplay(textParagraph);
+                if (this.mode === "bilingual") {
+                  this.isRunning && this.createParagraphBilingualDisplay(textParagraph);
+                } else {
+                  this.isRunning && this.createParagraphReplaceDisplay(textParagraph);
+                }
               }
             } catch (error) {
               console.error("Translation error:", error);
@@ -799,6 +817,21 @@
         wrap.appendChild(el.firstChild);
       }
       container.appendChild(wrap);
+    }
+    createParagraphReplaceDisplay(textParagraph) {
+      const container = textParagraph.container;
+      container.setAttribute(ORIGINAL_ATTR, container.innerHTML);
+      if (textParagraph.translate) {
+        container.innerHTML = textParagraph.translate;
+      } else {
+        for (const info of textParagraph.textNodes) {
+          const { node, translate, originalText } = info;
+          if (translate && translate !== originalText) {
+            node.textContent = translate;
+          }
+        }
+      }
+      this.translateContainers.push(container);
     }
   }
   class TextExtractor {
@@ -6675,6 +6708,7 @@ fallbackPlacements: this.flipFallbackPlacements,
   const _hoisted_6 = ["value"];
   const _hoisted_7 = { class: "ct-setting-dialog-to" };
   const _hoisted_8 = ["value"];
+  const _hoisted_9 = { class: "ct-setting-mode" };
   const threshold = 5;
   const _sfc_main = vue.defineComponent({
     __name: "ball.ce",
@@ -6685,12 +6719,14 @@ fallbackPlacements: this.flipFallbackPlacements,
       const config = _GM_getValue(STORAGE_CONFIG_KEY, {
         position: { x: "", y: "" },
         side: "right",
-        language: { from: "auto", to: "" }
+        language: { from: "auto", to: "" },
+        mode: "bilingual"
       });
       const states = vue.reactive({
         moving: false,
         isTranslating: false,
-        language: config.language || { from: "auto", to: "" }
+        language: config.language || { from: "auto", to: "" },
+        mode: config.mode ?? "bilingual"
       });
       let translate;
       const translateOptions = { ...config.language };
@@ -6699,6 +6735,7 @@ fallbackPlacements: this.flipFallbackPlacements,
       }
       useTranslate(translateOptions).then(async (t2) => {
         translate = t2;
+        translate.instance.setMode(states.mode);
         const from = await getFrom();
         const to = states.language.to;
         if (to) {
@@ -6829,6 +6866,15 @@ fallbackPlacements: this.flipFallbackPlacements,
         translate.instance.setLanguage({ from, to: states.language.to });
         _GM_setValue(STORAGE_CONFIG_KEY, { ...config, language: states.language });
       }
+      function onModeChange() {
+        if (!translate) return;
+        translate.instance.setMode(states.mode);
+        _GM_setValue(STORAGE_CONFIG_KEY, { ...config, mode: states.mode });
+        if (states.isTranslating) {
+          translate.instance.clearElements();
+          translate.instance.start();
+        }
+      }
       useWatchUrlChange((newUrl, oldUrl) => {
         if (states.isTranslating && newUrl !== oldUrl) {
           translate.instance.clearElements();
@@ -6886,7 +6932,7 @@ fallbackPlacements: this.flipFallbackPlacements,
                   [vue.vModelText, states.language.from]
                 ])
               ]),
-              _cache[4] || (_cache[4] = vue.createElementVNode("div", { class: "ct-setting-dialgo-icon" }, [
+              _cache[5] || (_cache[5] = vue.createElementVNode("div", { class: "ct-setting-dialgo-icon" }, [
                 vue.createElementVNode("wa-icon", {
                   name: "arrow-right",
                   label: "Awesome"
@@ -6908,14 +6954,27 @@ fallbackPlacements: this.flipFallbackPlacements,
                   [vue.vModelText, states.language.to]
                 ])
               ])
+            ]),
+            vue.createElementVNode("div", _hoisted_9, [
+              _cache[7] || (_cache[7] = vue.createElementVNode("label", null, "Display Mode", -1)),
+              vue.withDirectives(vue.createElementVNode("wa-select", {
+                "onUpdate:modelValue": _cache[4] || (_cache[4] = ($event) => states.mode = $event),
+                appearance: "filled",
+                onChange: onModeChange
+              }, [..._cache[6] || (_cache[6] = [
+                vue.createElementVNode("wa-option", { value: "bilingual" }, "Bilingual", -1),
+                vue.createElementVNode("wa-option", { value: "replace" }, "Replace", -1)
+              ])], 544), [
+                [vue.vModelText, states.mode]
+              ])
             ])
           ], 512)
         ], 512);
       };
     }
   });
-  const _style_0 = ".ct-root[data-v-f8372d34]{--size: 40px;--bg: #fff;-webkit-user-select:none;user-select:none;touch-action:none}.ct-root .ct-ball[data-v-f8372d34]{--x: 0px;--y: calc(50vh - var(--size)/2);position:fixed;z-index:999999999;top:0;width:var(--size);height:var(--size);background-color:var(--bg);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 16px #00000040;cursor:pointer;-webkit-user-select:none;user-select:none;touch-action:none;transform:translate(var(--x),var(--y))}.ct-root .ct-ball.ct-moving[data-v-f8372d34]{border-radius:50%;padding:unset!important}.ct-root .ct-ball.ct-moving .ct-setting-wrap[data-v-f8372d34]{display:none}.ct-root .ct-ball .ct-icon[data-v-f8372d34]{--size: 28px;width:var(--size);height:var(--size);position:relative;display:flex;align-items:center;justify-content:center;border-radius:50%;background-color:#00c4b6}.ct-root .ct-ball .ct-icon .ct-language-icon[data-v-f8372d34]{width:20px;height:20px}.ct-root .ct-ball .ct-icon .ct-check-icon[data-v-f8372d34]{position:absolute;bottom:-2px;right:0;width:10px;height:10px;border-radius:50%;background-color:#00c800cc;color:#fff}.ct-root .ct-ball[data-side=left] .ct-setting-wrap[data-v-f8372d34]{left:calc(var(--size) * -1)}.ct-root .ct-ball[data-side=left] .ct-setting-wrap[data-v-f8372d34]:hover{left:6px}.ct-root .ct-ball[data-side=right] .ct-setting-wrap[data-v-f8372d34]{right:calc(var(--size) * -1)}.ct-root .ct-ball[data-side=right] .ct-setting-wrap[data-v-f8372d34]:hover{right:6px}.ct-root .ct-ball .ct-setting-wrap[data-v-f8372d34]{--x: 0px;--y: calc(50vh - var(--size)/2);position:absolute;-webkit-user-select:none;user-select:none;touch-action:none;transition:all .3s ease;top:calc(var(--size));padding-top:10px;color:#000}.ct-root .ct-ball .ct-setting-wrap .ct-setting[data-v-f8372d34]{width:calc(var(--size) - 4px);height:calc(var(--size) - 4px);background-color:var(--bg);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 16px #00000040;border-radius:20px}.ct-root .ct-ball .ct-setting-wrap .ct-setting .ct-setting-icon[data-v-f8372d34]{width:20px;height:20px}.ct-root .ct-ball[data-side=left][data-v-f8372d34]{border-top-right-radius:20px;border-bottom-right-radius:20px}.ct-root .ct-ball[data-side=left]:hover[data-v-f8372d34]{--x: 0;padding-left:10px}.ct-root .ct-ball[data-side=left]:hover .ct-setting-wrap[data-v-f8372d34]{left:6px}.ct-root .ct-ball[data-side=right][data-v-f8372d34]{--x: calc(100vw - var(--size) - var(--scrollbar-width));--offset: calc(var(--scrollbar-width) + 10px);border-top-left-radius:20px;border-bottom-left-radius:20px;padding-right:var(--offset)}.ct-root .ct-ball[data-side=right]:hover[data-v-f8372d34]{--x: calc(100vw - var(--size) - var(--offset))}.ct-root .ct-ball[data-side=right]:hover .ct-setting-wrap[data-v-f8372d34]{right:calc(var(--scrollbar-width) + 6px)}.ct-root .ct-ball[data-side=right] .ct-icon .ct-check-icon[data-v-f8372d34]{left:0;right:unset}.ct-root .ct-setting-dialog[data-v-f8372d34]{display:flex}.ct-root .ct-setting-dialog .ct-setting-dialgo-icon[data-v-f8372d34]{width:40px;display:flex;align-items:center;justify-content:center;color:#999}.ct-root .ct-setting-dialog .ct-setting-dialog-from[data-v-f8372d34],.ct-root .ct-setting-dialog .ct-setting-dialog-to[data-v-f8372d34]{flex:1;height:40px;display:flex;align-items:center;justify-content:center;background-color:#eee;border-radius:10px}";
-  const ball = _export_sfc(_sfc_main, [["styles", [_style_0]], ["__scopeId", "data-v-f8372d34"]]);
+  const _style_0 = ".ct-root[data-v-d674b6ca]{--size: 40px;--bg: #fff;-webkit-user-select:none;user-select:none;touch-action:none}.ct-root .ct-ball[data-v-d674b6ca]{--x: 0px;--y: calc(50vh - var(--size)/2);position:fixed;z-index:999999999;top:0;width:var(--size);height:var(--size);background-color:var(--bg);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 16px #00000040;cursor:pointer;-webkit-user-select:none;user-select:none;touch-action:none;transform:translate(var(--x),var(--y))}.ct-root .ct-ball.ct-moving[data-v-d674b6ca]{border-radius:50%;padding:unset!important}.ct-root .ct-ball.ct-moving .ct-setting-wrap[data-v-d674b6ca]{display:none}.ct-root .ct-ball .ct-icon[data-v-d674b6ca]{--size: 28px;width:var(--size);height:var(--size);position:relative;display:flex;align-items:center;justify-content:center;border-radius:50%;background-color:#00c4b6}.ct-root .ct-ball .ct-icon .ct-language-icon[data-v-d674b6ca]{width:20px;height:20px}.ct-root .ct-ball .ct-icon .ct-check-icon[data-v-d674b6ca]{position:absolute;bottom:-2px;right:0;width:10px;height:10px;border-radius:50%;background-color:#00c800cc;color:#fff}.ct-root .ct-ball[data-side=left] .ct-setting-wrap[data-v-d674b6ca]{left:calc(var(--size) * -1)}.ct-root .ct-ball[data-side=left] .ct-setting-wrap[data-v-d674b6ca]:hover{left:6px}.ct-root .ct-ball[data-side=right] .ct-setting-wrap[data-v-d674b6ca]{right:calc(var(--size) * -1)}.ct-root .ct-ball[data-side=right] .ct-setting-wrap[data-v-d674b6ca]:hover{right:6px}.ct-root .ct-ball .ct-setting-wrap[data-v-d674b6ca]{--x: 0px;--y: calc(50vh - var(--size)/2);position:absolute;-webkit-user-select:none;user-select:none;touch-action:none;transition:all .3s ease;top:calc(var(--size));padding-top:10px;color:#000}.ct-root .ct-ball .ct-setting-wrap .ct-setting[data-v-d674b6ca]{width:calc(var(--size) - 4px);height:calc(var(--size) - 4px);background-color:var(--bg);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 16px #00000040;border-radius:20px}.ct-root .ct-ball .ct-setting-wrap .ct-setting .ct-setting-icon[data-v-d674b6ca]{width:20px;height:20px}.ct-root .ct-ball[data-side=left][data-v-d674b6ca]{border-top-right-radius:20px;border-bottom-right-radius:20px}.ct-root .ct-ball[data-side=left]:hover[data-v-d674b6ca]{--x: 0;padding-left:10px}.ct-root .ct-ball[data-side=left]:hover .ct-setting-wrap[data-v-d674b6ca]{left:6px}.ct-root .ct-ball[data-side=right][data-v-d674b6ca]{--x: calc(100vw - var(--size) - var(--scrollbar-width));--offset: calc(var(--scrollbar-width) + 10px);border-top-left-radius:20px;border-bottom-left-radius:20px;padding-right:var(--offset)}.ct-root .ct-ball[data-side=right]:hover[data-v-d674b6ca]{--x: calc(100vw - var(--size) - var(--offset))}.ct-root .ct-ball[data-side=right]:hover .ct-setting-wrap[data-v-d674b6ca]{right:calc(var(--scrollbar-width) + 6px)}.ct-root .ct-ball[data-side=right] .ct-icon .ct-check-icon[data-v-d674b6ca]{left:0;right:unset}.ct-root .ct-setting-dialog[data-v-d674b6ca]{display:flex}.ct-root .ct-setting-dialog .ct-setting-dialgo-icon[data-v-d674b6ca]{width:40px;display:flex;align-items:center;justify-content:center;color:#999}.ct-root .ct-setting-dialog .ct-setting-dialog-from[data-v-d674b6ca],.ct-root .ct-setting-dialog .ct-setting-dialog-to[data-v-d674b6ca]{flex:1;height:40px;display:flex;align-items:center;justify-content:center;background-color:#eee;border-radius:10px}.ct-root .ct-setting-mode[data-v-d674b6ca]{margin-top:12px}.ct-root .ct-setting-mode label[data-v-d674b6ca]{display:block;margin-bottom:4px;font-size:12px;color:#666}.ct-root .ct-setting-mode wa-select[data-v-d674b6ca]{width:100%}";
+  const ball = _export_sfc(_sfc_main, [["styles", [_style_0]], ["__scopeId", "data-v-d674b6ca"]]);
   customElements.define("chrome-translate-ball", vue.defineCustomElement(ball));
   const ballEl = document.createElement("chrome-translate-ball");
   document.documentElement.appendChild(ballEl);

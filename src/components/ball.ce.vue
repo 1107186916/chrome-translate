@@ -7,7 +7,7 @@ import languageIcon from '../components/icon/language.vue'
 import settingIcon from '../components/icon/setting.vue'
 import { useTranslate } from '../hooks/useTranslate'
 import { useWatchUrlChange } from '../hooks/useWatchUrlChange'
-import { SCROLLBAR_INFO, STORAGE_CONFIG_KEY } from '../utils/constant'
+import { Mode, SCROLLBAR_INFO, STORAGE_CONFIG_KEY } from '../utils/constant'
 import { LANGUAGES } from '../utils/languages'
 import { clamp, debounce, throttle, watchScrollbarChange } from '../utils/public'
 import '@awesome.me/webawesome/dist/styles/themes/default.css'
@@ -25,12 +25,14 @@ const config = GM_getValue(STORAGE_CONFIG_KEY, {
   position: { x: '', y: '' },
   side: 'right',
   language: { from: 'auto', to: '' },
+  mode: 'bilingual' as Mode,
 })
 
 const states = reactive({
   moving: false,
   isTranslating: false,
   language: config.language || { from: 'auto', to: '' },
+  mode: (config.mode ?? 'bilingual') as Mode,
 })
 
 let translate: Awaited<ReturnType<typeof useTranslate>>
@@ -41,6 +43,7 @@ if (translateOptions.from === 'auto') {
 
 useTranslate(translateOptions).then(async (t) => {
   translate = t
+  translate.instance.setMode(states.mode)
   const from = await getFrom()
   const to = states.language.to
   if (to) {
@@ -201,6 +204,16 @@ async function onSelected() {
   GM_setValue(STORAGE_CONFIG_KEY, { ...config, language: states.language })
 }
 
+function onModeChange() {
+  if (!translate) return
+  translate.instance.setMode(states.mode)
+  GM_setValue(STORAGE_CONFIG_KEY, { ...config, mode: states.mode })
+  if (states.isTranslating) {
+    translate.instance.clearElements()
+    translate.instance.start()
+  }
+}
+
 useWatchUrlChange((newUrl, oldUrl) => {
   if (states.isTranslating && newUrl !== oldUrl) {
     translate.instance.clearElements()
@@ -249,6 +262,13 @@ useWatchUrlChange((newUrl, oldUrl) => {
             </wa-option>
           </wa-select>
         </div>
+      </div>
+      <div class="ct-setting-mode">
+        <label>Display Mode</label>
+        <wa-select v-model="states.mode" appearance="filled" @change="onModeChange">
+          <wa-option value="bilingual">Bilingual</wa-option>
+          <wa-option value="replace">Replace</wa-option>
+        </wa-select>
       </div>
     </wa-dialog>
   </div>
@@ -424,6 +444,21 @@ useWatchUrlChange((newUrl, oldUrl) => {
       border-radius: 10px;
     }
 
+  }
+
+  .ct-setting-mode {
+    margin-top: 12px;
+
+    label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: #666;
+    }
+
+    wa-select {
+      width: 100%;
+    }
   }
 }
 </style>
