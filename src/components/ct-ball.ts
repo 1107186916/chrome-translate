@@ -11,7 +11,7 @@ import { SCROLLBAR_INFO, STORAGE_CONFIG_KEY } from '../utils/constant'
 import { logger } from '../utils/logger'
 import { clamp, debounce, throttle, watchScrollbarChange } from '../utils/public'
 import { CtConfirm } from './ct-confirm'
-import { checkIcon, languageIcon, settingIcon } from './icons'
+import { checkIcon, languageIcon, settingIcon, translateIcon } from './icons'
 import './ct-button'
 import './ct-settings'
 
@@ -369,6 +369,10 @@ export class ChromeTranslateBall extends LitElement {
     }
   }
 
+  private onOpenTranslatePanel = (): void => {
+    document.dispatchEvent(new CustomEvent('chrome-translate-open-panel'))
+  }
+
   private async onSelectLanguage(target: 'from' | 'to', value: string): Promise<void> {
     this.language = { ...this.language, [target]: value }
     logger.info(`Language changed: ${target}=${value}`)
@@ -566,6 +570,9 @@ export class ChromeTranslateBall extends LitElement {
               : nothing}
           </div>
           <div class="ct-setting-wrap text-black" ?hidden=${this.moving} @click=${(e: Event) => e.stopPropagation()}>
+            <div class="w-[calc(var(--size)-4px)] h-[calc(var(--size)-4px)] bg-white cursor-pointer flex items-center justify-center shadow-[0_8px_16px_rgba(0,0,0,.25)] rounded-[20px] mb-[8px]" @click=${this.onOpenTranslatePanel}>
+              ${translateIcon}
+            </div>
             <div class="w-[calc(var(--size)-4px)] h-[calc(var(--size)-4px)] bg-white cursor-pointer flex items-center justify-center shadow-[0_8px_16px_rgba(0,0,0,.25)] rounded-[20px]" @click=${this.onOpenSetting}>
               ${settingIcon}
             </div>
