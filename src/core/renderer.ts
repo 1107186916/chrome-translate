@@ -63,7 +63,7 @@ export class Renderer {
         const translation = await this.translator.translate(options)
         this.translateCache.set(key, translation)
         node.translate = translation
-        node.translate = applySpaces(node.spaces, node.translate)
+        node.translate = applySpaces(node.spaces, node.translate!)
       }
     })
     await Promise.all(translationPromises)

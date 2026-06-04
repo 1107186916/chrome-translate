@@ -1,7 +1,8 @@
 import { GM_getValue } from '$'
-import { css, html, LitElement } from 'lit'
+import { css, html, LitElement, nothing } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { Translator } from '../core/translator'
+import { ChromeTranslator } from '../core/provider/chrome'
 import { LFUCache } from '../utils/LFUCache'
 import { STORAGE_CONFIG_KEY } from '../utils/constant'
 
@@ -140,7 +141,11 @@ export class ChromeTranslateSelection extends LitElement {
     }
   `
 
-  private translator = new Translator()
+  private translator = (() => {
+    const t = new Translator()
+    t.registerProvider('chrome', new ChromeTranslator())
+    return t
+  })()
   private cache = new LFUCache<string>('ct-selection-cache')
 
   @state() private phase: Phase = 'hidden'

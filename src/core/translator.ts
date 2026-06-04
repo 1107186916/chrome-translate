@@ -55,6 +55,14 @@ export class Translator {
     return langs[0].detectedLanguage
   }
 
+  async translate(options: ITranslateOptions & { text: string }): Promise<string> {
+    const provider = this.providers.get(this.current)
+    if (!provider) {
+      throw new Error(`Provider "${this.current}" is not registered`)
+    }
+    return provider.translate(options)
+  }
+
   async detectPageLanguage(): Promise<string> {
     const lang = document.documentElement.lang
     if (lang) {

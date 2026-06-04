@@ -2,6 +2,7 @@ import { GM_getValue, GM_setValue } from '$'
 import { css, html, LitElement, nothing } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { Translator } from '../core/translator'
+import { ChromeTranslator } from '../core/provider/chrome'
 import { emitCtEvent } from '../utils/emit'
 import { LANGUAGES } from '../utils/languages'
 import { STORAGE_CONFIG_KEY } from '../utils/constant'
@@ -218,7 +219,11 @@ export class ChromeTranslatePanel extends LitElement {
   @state() private error = ''
   @state() private language = { from: 'auto' as string, to: '' as string }
 
-  private translator = new Translator()
+  private translator = (() => {
+    const t = new Translator()
+    t.registerProvider('chrome', new ChromeTranslator())
+    return t
+  })()
   private cache = new LFUCache<string>('ct-input-cache')
 
   private get fromOptions() {

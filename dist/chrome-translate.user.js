@@ -2056,6 +2056,13 @@ isStrictlyExcludedElement(element, excludeSelectors = []) {
       const langs = await detector.detect(text);
       return langs[0].detectedLanguage;
     }
+    async translate(options) {
+      const provider = this.providers.get(this.current);
+      if (!provider) {
+        throw new Error(`Provider "${this.current}" is not registered`);
+      }
+      return provider.translate(options);
+    }
     async detectPageLanguage() {
       const lang = document.documentElement.lang;
       if (lang) {
@@ -4702,7 +4709,11 @@ info() {
   let ChromeTranslateSelection = class extends i {
     constructor() {
       super(...arguments);
-      this.translator = new Translator();
+      this.translator = (() => {
+        const t2 = new Translator();
+        t2.registerProvider("chrome", new ChromeTranslator());
+        return t2;
+      })();
       this.cache = new LFUCache("ct-selection-cache");
       this.phase = "hidden";
       this.selectedText = "";
@@ -4833,7 +4844,7 @@ info() {
               <path d="M12 17h8" />
             </svg>
           </button>
-        ` : nothing}
+        ` : E}
 
         ${this.phase === "popup" ? x`
           <div
@@ -4861,7 +4872,7 @@ info() {
               <div class="ct-sel-text ct-sel-translated">${this.translatedText}</div>
             `}
           </div>
-        ` : nothing}
+        ` : E}
       </div>
     `;
     }
@@ -5035,7 +5046,11 @@ info() {
       this.loading = false;
       this.error = "";
       this.language = { from: "auto", to: "" };
-      this.translator = new Translator();
+      this.translator = (() => {
+        const t2 = new Translator();
+        t2.registerProvider("chrome", new ChromeTranslator());
+        return t2;
+      })();
       this.cache = new LFUCache("ct-input-cache");
       this.onOpenPanel = () => {
         this.open = true;
