@@ -390,7 +390,7 @@ export class ChromeTranslatePanel extends LitElement {
         <div class="ct-panel-body">
           <!-- Language selectors -->
           <div class="ct-panel-lang-row">
-            <div class="flex-1">
+            <div style="flex:1">
               <ct-select
                 .value=${this.language.from}
                 .options=${this.fromOptions}
@@ -409,7 +409,7 @@ export class ChromeTranslatePanel extends LitElement {
                 <line x1="3" y1="12" x2="21" y2="12" />
               </svg>
             </button>
-            <div class="flex-1">
+            <div style="flex:1">
               <ct-select
                 .value=${this.language.to}
                 .options=${this.toOptions}
