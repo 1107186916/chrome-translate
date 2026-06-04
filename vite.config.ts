@@ -1,17 +1,9 @@
-import vue from '@vitejs/plugin-vue'
+import UnoCSS from 'unocss/vite'
 import { defineConfig } from 'vite'
-import monkey, { cdn } from 'vite-plugin-monkey'
+import monkey from 'vite-plugin-monkey'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    vue({
-      template:{
-        compilerOptions: {
-          isCustomElement:(tag) => tag.startsWith('wa-')
-        }
-      }
-    }),
     monkey({
       entry: 'src/main.ts',
       userscript: {
@@ -19,11 +11,9 @@ export default defineConfig({
         namespace: 'lete114/chrome-translate',
         match: ['*://*/*'],
       },
-      build: {
-        externalGlobals: {
-          vue: cdn.jsdelivr('Vue', 'dist/vue.global.prod.js'),
-        },
-      },
+    }),
+    UnoCSS({
+      mode: 'shadow-dom',
     }),
   ],
 })

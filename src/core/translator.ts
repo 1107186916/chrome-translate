@@ -1,89 +1,50 @@
-import type { Progress } from './progress'
-
 export interface ITranslateOptions {
   from: string
   to: string
 }
-export interface ITranslatorOptions {
-  progress?: Progress
+
+export interface ITranslationProvider {
+  translate: (options: ITranslateOptions & { text: string }) => Promise<string>
 }
+
 export class Translator {
-  translatorCacheMap = new Map<string, any>()
-  progress?: Progress
-  constructor(options: ITranslatorOptions = {}) {
-    this.progress = options.progress
+  private providers = new Map<string, ITranslationProvider>()
+  private current = 'chrome'
+
+  registerProvider(name: string, provider: ITranslationProvider): void {
+    this.providers.set(name, provider)
   }
 
-  async translate(
-    options: ITranslateOptions & { text: string },
-  ): Promise<string> {
-    const translator = await this.getTranslator({ from: options.from, to: options.to })
-    return translator.translate(options.text)
+  setProvider(name: string): void {
+    if (!this.providers.has(name)) {
+      throw new Error(`Provider "${name}" not registered`)
+    }
+    this.current = name
   }
 
-  async createTranslator(options: ITranslateOptions) {
-    const languages = {
-      sourceLanguage: options.from,
-      targetLanguage: options.to,
-    }
+  get providerName(): string {
+    return this.current
+  }
 
-    const availability = await (window as any).Translator.availability(
-      languages,
-    )
+  getProvider(name: string): ITranslationProvider | undefined {
+    return this.providers.get(name)
+  }
 
-    if (availability === 'unavailable') {
-      console.warn(
-        `Translation not supported; try a different language combination.`,
-      )
-      return undefined
+  async detectLanguage(text: string): Promise<string> {
+    const api = (window as any).LanguageDetector
+    if (!api) {
+      throw new Error('LanguageDetector is not available')
     }
-    else if (availability === 'available') {
-      return (window as any).Translator.create(languages)
-    }
-    return (window as any).Translator.create({
-      ...languages,
+    const detector = await api.create({
       monitor: (monitor: any) => {
-        const progess = this.progress?.createProgressElement({ title: 'Downloading Translator...' })
-        monitor.addEventListener('downloadprogress', (e: any) => {
-          const percentage = Math.floor(e.loaded * 100)
-          progess?.showProgress(percentage)
-          // console.log(`Downloaded Translator: ${percentage}%`)
-        })
-      },
-    })
-  }
-
-  async getTranslator(options: ITranslateOptions) {
-    const key = Object.values(options).join('-')
-    let translatorPromise = this.translatorCacheMap.get(key)
-
-    if (!translatorPromise) {
-      translatorPromise = this.createTranslator(options).then((translator) => {
-        // 如果 translator 创建失败，移除缓存，避免下次继续用坏的 Promise
-        if (!translator) {
-          this.translatorCacheMap.delete(key)
-          throw new Error('Translator creation failed')
+        const progress = (this.providers.get('chrome') as any)?.progress
+        if (progress) {
+          const p = progress.createProgressElement({ title: 'Downloading LanguageDetector...' })
+          monitor.addEventListener('downloadprogress', (e: any) => {
+            const percentage = Math.floor(e.loaded * 100)
+            p?.showProgress(percentage)
+          })
         }
-        return translator
-      }).catch((err) => {
-        this.translatorCacheMap.delete(key)
-        console.error('Error creating translator:', err)
-      })
-      this.translatorCacheMap.set(key, translatorPromise)
-    }
-
-    return translatorPromise
-  }
-
-  async detectLanguage(text: string) {
-    const detector = await (window as any).LanguageDetector.create({
-      monitor: (monitor: any) => {
-        const progress = this.progress?.createProgressElement({ title: 'Downloading LanguageDetector...' })
-        monitor.addEventListener('downloadprogress', (e: any) => {
-          const percentage = Math.floor(e.loaded * 100)
-          progress?.showProgress(percentage)
-          // console.log(`Download LanguageDetector: ${percentage}`)
-        })
       },
     })
 
@@ -94,12 +55,25 @@ export class Translator {
     return langs[0].detectedLanguage
   }
 
-  async detectPageLanguage() {
+  async translate(options: ITranslateOptions & { text: string }): Promise<string> {
+    const provider = this.providers.get(this.current)
+    if (!provider) {
+      throw new Error(`Provider "${this.current}" is not registered`)
+    }
+    return provider.translate(options)
+  }
+
+  async detectPageLanguage(): Promise<string> {
     const lang = document.documentElement.lang
     if (lang) {
       return lang
     }
-    const textContent = document.body.textContent
-    return textContent ? this.detectLanguage(textContent) : 'en'
+    const textContent = document.body?.textContent
+    if (!textContent) return 'en'
+    try {
+      return await this.detectLanguage(textContent)
+    } catch {
+      return 'en'
+    }
   }
 }

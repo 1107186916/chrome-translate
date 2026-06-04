@@ -2,7 +2,13 @@ import type { LFUCache } from '../utils/LFUCache'
 import type { ITextNodeInfo, ITextParagraph, TCombinedTextMap, TextExtractor } from './textExtractor'
 import type { ITranslateOptions, Translator } from './translator'
 import { BILINGUAL_CONTAINER, BILINGUAL_PARAGRAPH, DOM_SELECTORS, ORIGINAL_ATTR, TRANSLATE_ATTR } from '../utils/constant'
+import { logger } from '../utils/logger'
 import { applySpaces, debounce, isExcludedElement } from '../utils/public'
+
+interface QueueItem {
+  textParagraph: ITextParagraph
+  cancelLoading: () => void
+}
 
 export interface IRendererOptions extends ITranslateOptions {
   el?: HTMLElement
@@ -20,6 +26,9 @@ export class Renderer {
   useHTML = false
   mode: 'bilingual' | 'replace' = 'bilingual'
   isRunning = false
+  batchSize = 6
+  private activeCount = 0
+  private pendingQueue: QueueItem[] = []
   observer: IntersectionObserver | undefined
   mutationObserver: MutationObserver | undefined
   translateElements: HTMLElement[] = []
@@ -44,15 +53,17 @@ export class Renderer {
       if (this.translateCache.has(key)) {
         const text = this.translateCache.get(key)
         node.translate = text
+        logger.info(`Cache hit: ${from}→${to}:${node.text.slice(0, 40)}`)
         return
       }
+      logger.info(`Cache miss: ${key.slice(0, 60)}`)
       node.translate = node.originalText
       if (!isExcludedElement(node.parent)) {
         const options = { text: node.text, from, to }
         const translation = await this.translator.translate(options)
         this.translateCache.set(key, translation)
         node.translate = translation
-        node.translate = applySpaces(node.spaces, node.translate)
+        node.translate = applySpaces(node.spaces, node.translate!)
       }
     })
     await Promise.all(translationPromises)
@@ -60,12 +71,15 @@ export class Renderer {
   }
 
   async translateHTML({ from, to, map, text }: ITranslateOptions & { map: TCombinedTextMap, text: string }) {
-      const key = `${from}->${to}:${text}`
+    const key = `${from}->${to}:${text}`
     if (this.translateCache.has(key)) {
+      logger.info(`Cache hit: ${key.slice(0, 60)}`)
       return this.translateCache.get(key)!
     }
+    logger.info(`Cache miss: ${key.slice(0, 60)}`)
     const translate = await this.translator.translate({ text, from, to })
     const innerHTML = this.textExtractor.parseTextWithInlineTags(translate, map)
+    this.translateCache.set(key, innerHTML)
     return innerHTML
   }
 
@@ -113,6 +127,7 @@ export class Renderer {
     this.translateElements = []
     this.translateContainers = []
     this.clearLoading()
+    logger.info('Translated elements cleared')
   }
 
   getGroupTextNodesByParagraph(rootElement: HTMLElement) {
@@ -123,22 +138,27 @@ export class Renderer {
 
   stop() {
     this.isRunning = false
+    this.pendingQueue = []
+    this.activeCount = 0
 
     this.observer?.disconnect()
     this.mutationObserver?.disconnect()
     this.observer = undefined
     this.mutationObserver = undefined
+    logger.info('Translation stopped')
   }
 
   start() {
     if (this.language.from === this.language.to) {
       return
     }
-
     this.stop()
 
     this.isRunning = true
     const groupedNodes = new Map<HTMLElement, ITextParagraph>()
+
+    const paragraphs = this.getGroupTextNodesByParagraph(this.el)
+    logger.info(`Translation started, ${paragraphs.length} paragraphs found`)
 
     const observerCallback: IntersectionObserverCallback = (entries, observer) => {
       entries.forEach(async (entry) => {
@@ -155,39 +175,14 @@ export class Renderer {
           }
 
           node.setAttribute(TRANSLATE_ATTR, '')
-          const cancelLoding = this.createLodingDisplay(node)
-
-          try {
-            if (this.useHTML) {
-              const translateOptions = { from: this.language.from, to: this.language.to, map: textParagraph.combinedTextMap, text: textParagraph.combinedText }
-              textParagraph.translate = await this.translateHTML(translateOptions)
-              cancelLoding()
-              if (this.mode === 'bilingual') {
-                this.isRunning && this.createParagraphBilingualDisplayHTML(textParagraph)
-              } else {
-                this.isRunning && this.createParagraphReplaceDisplay(textParagraph)
-              }
-            }
-            else {
-              const translateOptions = { textNodes: textParagraph.textNodes, from: this.language.from, to: this.language.to }
-              textParagraph.textNodes = await this.translate(translateOptions)
-              cancelLoding()
-              if (this.mode === 'bilingual') {
-                this.isRunning && this.createParagraphBilingualDisplay(textParagraph)
-              } else {
-                this.isRunning && this.createParagraphReplaceDisplay(textParagraph)
-              }
-            }
-          }
-          catch (error) {
-            console.error('Translation error:', error)
-          }
+          const cancelLoading = this.createLodingDisplay(node)
+          this.enqueueTranslation({ textParagraph, cancelLoading })
           observer.unobserve(node)
         }
       })
     }
     this.observer = new IntersectionObserver(observerCallback, { root: null, rootMargin: '50px', threshold: 0.1 /* 只要出现10%就开始翻译 */ })
-    this.getGroupTextNodesByParagraph(this.el).forEach((group) => {
+    paragraphs.forEach((group) => {
       groupedNodes.set(group.container, group)
       this.observer?.observe(group.container)
     })
@@ -208,6 +203,57 @@ export class Renderer {
     }
     this.mutationObserver = new MutationObserver(debounce(mutationCallback, 500))
     this.mutationObserver.observe(this.el, { childList: true, subtree: true })
+  }
+
+  private enqueueTranslation(item: QueueItem): void {
+    this.pendingQueue.push(item)
+    this.processQueue()
+  }
+
+  private processQueue(): void {
+    while (this.isRunning && this.activeCount < this.batchSize && this.pendingQueue.length > 0) {
+      const item = this.pendingQueue.shift()!
+      this.activeCount++
+      this.processItem(item).finally(() => {
+        this.activeCount--
+        this.processQueue()
+      })
+    }
+  }
+
+  private async processItem(item: QueueItem): Promise<void> {
+    const { textParagraph, cancelLoading } = item
+
+    try {
+      if (this.useHTML) {
+        const translateOptions = { from: this.language.from, to: this.language.to, map: textParagraph.combinedTextMap, text: textParagraph.combinedText }
+        textParagraph.translate = await this.translateHTML(translateOptions)
+        cancelLoading()
+        if (this.mode === 'bilingual') {
+          this.isRunning && this.createParagraphBilingualDisplayHTML(textParagraph)
+        } else {
+          this.isRunning && this.createParagraphReplaceDisplay(textParagraph)
+        }
+      }
+      else {
+        const translateOptions = { textNodes: textParagraph.textNodes, from: this.language.from, to: this.language.to }
+        textParagraph.textNodes = await this.translate(translateOptions)
+        cancelLoading()
+        if (this.mode === 'bilingual') {
+          this.isRunning && this.createParagraphBilingualDisplay(textParagraph)
+        } else {
+          this.isRunning && this.createParagraphReplaceDisplay(textParagraph)
+        }
+      }
+      const preview = (textParagraph.combinedText ?? textParagraph.textNodes[0]?.text ?? '').slice(0, 50)
+      logger.info(`Translated: ${preview}...`)
+    }
+    catch (error) {
+      cancelLoading()
+      const msg = error instanceof Error ? error.message : String(error)
+      logger.error(`Translation error: ${msg}`)
+      console.error('Translation error:', error)
+    }
   }
 
   createLodingDisplay(el: HTMLElement) {
